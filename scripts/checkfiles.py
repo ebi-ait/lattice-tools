@@ -6,6 +6,8 @@ Example.
     %(prog)s --username ACCESS_KEY_ID --password SECRET_ACCESS_KEY \\
         --output check_files.log https://www.encodeproject.org
 """
+
+# Install slackclient==1.3.1
 import datetime
 import time
 import os.path
@@ -18,6 +20,7 @@ from urllib.parse import urljoin
 import requests
 import copy
 from slackclient import SlackClient
+import boto3
 
 EPILOG = __doc__
 
@@ -482,11 +485,14 @@ def process_sequence_line(sequence_line, read_lengths_dictionary):
 
 
 def process_fastq_file(job, fastq_data_stream, session, url):
-    item = job['item']
+#    item = job['item']
     errors = job['errors']
     result = job['result']
-
-    read_name_details = get_read_name_details(job.get('@id'), errors, session, url)
+#
+#    read_name_details = get_read_name_details(job.get('@id'), errors, session, url)
+#
+#jychien: Cannot get read name details metadata
+    read_name_details = {}
 
     read_numbers_set = set()
     signatures_set = set()
@@ -543,44 +549,47 @@ def process_fastq_file(job, fastq_data_stream, session, url):
             read_lengths_list.append((k, read_lengths_dictionary[k]))
 
         #excluding pacbio from read_length verification
-        platform_uuid = get_platform_uuid(job.get('@id'), errors, session, url)
-        if platform_uuid not in ['ced61406-dcc6-43c4-bddd-4c977cc676e8',
-                                 'c7564b38-ab4f-4c42-a401-3de48689a998',
-                                 'e2be5728-5744-4da4-8881-cb9526d0389e',
-                                 '7cc06b8c-5535-4a77-b719-4c23644e767d',
-                                 '8f1a9a8c-3392-4032-92a8-5d196c9d7810',
-                                 '6c275b37-018d-4bf8-85f6-6e3b830524a9',
-                                 '6ce511d5-eeb3-41fc-bea7-8c38301e88c1'
-                                 ]:
-            if 'read_length' in item and item['read_length'] > 2:
-                process_read_lengths(read_lengths_dictionary,
-                                     read_lengths_list,
-                                     item['read_length'],
-                                     read_count,
-                                     0.9,
-                                     errors,
-                                     result)
-            else:
-                errors['read_length'] = 'no specified read length in the uploaded fastq file, ' + \
-                                        'while read length(s) found in the file were {}. '.format(
-                                            ', '.join(map(str, read_lengths_list)))
-                update_content_error(errors,
-                                     'Fastq file metadata lacks read length information, ' +
-                                     'but the file contains read length(s) {}'.format(
-                                         ', '.join(map(str, read_lengths_list))))
+#        platform_uuid = get_platform_uuid(job.get('@id'), errors, session, url)
+#        if platform_uuid not in ['ced61406-dcc6-43c4-bddd-4c977cc676e8',
+#                                 'c7564b38-ab4f-4c42-a401-3de48689a998',
+#                                 'e2be5728-5744-4da4-8881-cb9526d0389e',
+#                                 '7cc06b8c-5535-4a77-b719-4c23644e767d',
+#                                 '8f1a9a8c-3392-4032-92a8-5d196c9d7810',
+#                                 '6c275b37-018d-4bf8-85f6-6e3b830524a9',
+#                                 '6ce511d5-eeb3-41fc-bea7-8c38301e88c1'
+#                                 ]:
+#            if 'read_length' in item and item['read_length'] > 2:
+#                process_read_lengths(read_lengths_dictionary,
+#                                     read_lengths_list,
+#                                     item['read_length'],
+#                                     read_count,
+#                                     0.9,
+#                                     errors,
+#                                     result)
+#            else:
+#                errors['read_length'] = 'no specified read length in the uploaded fastq file, ' + \
+#                                        'while read length(s) found in the file were {}. '.format(
+#                                            ', '.join(map(str, read_lengths_list)))
+#                update_content_error(errors,
+#                                     'Fastq file metadata lacks read length information, ' +
+#                                     'but the file contains read length(s) {}'.format(
+#                                         ', '.join(map(str, read_lengths_list))))
         # signatures
-        signatures_for_comparison = set()
-        is_UMI = False
-        if 'flowcell_details' in item and len(item['flowcell_details']) > 0:
-            for entry in item['flowcell_details']:
-                if 'barcode' in entry and entry['barcode'] == 'UMI':
-                    is_UMI = True
-                    break
-        if old_illumina_current_prefix == 'empty' and is_UMI:
-            for entry in signatures_no_barcode_set:
-                signatures_for_comparison.add(entry + 'UMI:')
-        else:
-            if old_illumina_current_prefix == 'empty' and len(signatures_set) > 100:
+#        signatures_for_comparison = set()
+#        is_UMI = False
+#        if 'flowcell_details' in item and len(item['flowcell_details']) > 0:
+#            for entry in item['flowcell_details']:
+#                if 'barcode' in entry and entry['barcode'] == 'UMI':
+#                    is_UMI = True
+#                    break
+#        if old_illumina_current_prefix == 'empty' and is_UMI:
+#            for entry in signatures_no_barcode_set:
+#                signatures_for_comparison.add(entry + 'UMI:')
+#        else:
+
+           
+# jychien: remove len(signatures_set) > 100 requirement and process barcodes
+            if old_illumina_current_prefix == 'empty': # and len(signatures_set) > 100:
                 signatures_for_comparison = process_barcodes(signatures_set)
                 if len(signatures_for_comparison) == 0:
                     for entry in signatures_no_barcode_set:
@@ -588,14 +597,14 @@ def process_fastq_file(job, fastq_data_stream, session, url):
 
             else:
                 signatures_for_comparison = signatures_set
-
+#
         result['fastq_signature'] = sorted(list(signatures_for_comparison))
-        check_for_fastq_signature_conflicts(
-            session,
-            url,
-            errors,
-            item,
-            signatures_for_comparison)
+#        check_for_fastq_signature_conflicts(
+#            session,
+#            url,
+#            errors,
+#            item,
+#            signatures_for_comparison)
 
 
 def process_barcodes(signatures_set):
@@ -758,101 +767,111 @@ def check_for_fastq_signature_conflicts(session,
 
 def check_for_contentmd5sum_conflicts(item, result, output, errors, session, url):
     result['content_md5sum'] = output[:32].decode(errors='replace')
-    try:
-        int(result['content_md5sum'], 16)
-    except ValueError:
-        errors['content_md5sum'] = output.decode(errors='replace').rstrip('\n')
-        update_content_error(errors, 'File content md5sum format error')
-    else:
-        query = '/search/?type=File&status!=replaced&datastore=database&content_md5sum=' + result[
-            'content_md5sum']
-        try:
-            r = session.get(urljoin(url, query))
-        except requests.exceptions.RequestException as e:
-            errors['lookup_for_content_md5sum'] = 'Network error occured, while looking for ' + \
-                                                  'content md5sum conflict on the portal. ' + str(e)
-        else:
-            try:
-                r_graph = r.json().get('@graph')
-            except ValueError:
-                errors['content_md5sum_lookup_json_error'] = str(r)
-            else:
-                if len(r_graph) > 0:
-                    conflicts = []
-                    for entry in r_graph:
-                        if 'accession' in entry and 'accession' in item:
-                            if entry['accession'] != item['accession']:
-                                conflicts.append(
-                                    '%s in file %s ' % (
-                                        result['content_md5sum'],
-                                        entry['accession']))
-                        elif 'accession' in entry:
-                            conflicts.append(
-                                '%s in file %s ' % (
-                                    result['content_md5sum'],
-                                    entry['accession']))
-                        elif 'accession' not in entry and 'accession' not in item:
-                            conflicts.append(
-                                '%s ' % (
-                                    result['content_md5sum']))
-                    if len(conflicts) > 0:
-                        errors['content_md5sum'] = str(conflicts)
-                        update_content_error(errors,
-                                             'File content md5sum conflicts with content ' +
-                                             'md5sum of existing file(s) {}'.format(
-                                                 ', '.join(map(str, conflicts))))
-
+#    try:
+#        int(result['content_md5sum'], 16)
+#    except ValueError:
+#        errors['content_md5sum'] = output.decode(errors='replace').rstrip('\n')
+#        update_content_error(errors, 'File content md5sum format error')
+#    else:
+#        query = '/search/?type=File&status!=replaced&datastore=database&content_md5sum=' + result[
+#            'content_md5sum']
+#        try:
+#            r = session.get(urljoin(url, query))
+#        except requests.exceptions.RequestException as e:
+#            errors['lookup_for_content_md5sum'] = 'Network error occured, while looking for ' + \
+#                                                  'content md5sum conflict on the portal. ' + str(e)
+#        else:
+#            try:
+#                r_graph = r.json().get('@graph')
+#            except ValueError:
+#                errors['content_md5sum_lookup_json_error'] = str(r)
+#            else:
+#                if len(r_graph) > 0:
+#                    conflicts = []
+#                    for entry in r_graph:
+#                        if 'accession' in entry and 'accession' in item:
+#                            if entry['accession'] != item['accession']:
+#                                conflicts.append(
+#                                    '%s in file %s ' % (
+#                                        result['content_md5sum'],
+#                                        entry['accession']))
+#                        elif 'accession' in entry:
+#                            conflicts.append(
+#                                '%s in file %s ' % (
+#                                    result['content_md5sum'],
+#                                    entry['accession']))
+#                        elif 'accession' not in entry and 'accession' not in item:
+#                            conflicts.append(
+#                                '%s ' % (
+#                                    result['content_md5sum']))
+#                    if len(conflicts) > 0:
+#                        errors['content_md5sum'] = str(conflicts)
+#                        update_content_error(errors,
+#                                             'File content md5sum conflicts with content ' +
+#                                             'md5sum of existing file(s) {}'.format(
+#                                                 ', '.join(map(str, conflicts))))
+#
 
 def check_file(config, session, url, job):
-    item = job['item']
+#    item = job['item']
+
+# jychien: cannot access item from database, let it be an empty dictionary
+    item = {}
     errors = job['errors']
     result = job['result'] = {}
+#
+#    if job.get('skip'):
+#        return job
+#
+#    if not local_path:
+#        no_file_flag = item.get('no_file_available')
+#        if no_file_flag:
+#            return job
+#        else:
+#            download_url = job['download_url']
+#            local_path = os.path.join(config['mirror'], download_url[len('s3://'):])
+#    # boolean standing for local .bed file creation
+#    is_local_bed_present = False
+#    if item['file_format'] == 'bed':
+#        # local_path[-18:-7] retreives the file accession from the path
+#        unzipped_modified_bed_path = local_path[-18:-7] + '_modified.bed'
+#    try:
 
-    if job.get('skip'):
-        return job
+# jychien: Do not need to download file to local_path. Obtain stats on file
+# Make sure local_file is in job dictionary
+    if job['local_file'] is not None:
+        local_path = job.get('local_file')
+        file_stat = os.stat(job['local_file'])
 
-    local_path = job.get('local_file')
-    if not local_path:
-        no_file_flag = item.get('no_file_available')
-        if no_file_flag:
-            return job
-        else:
-            download_url = job['download_url']
-            local_path = os.path.join(config['mirror'], download_url[len('s3://'):])
-    # boolean standing for local .bed file creation
-    is_local_bed_present = False
-    if item['file_format'] == 'bed':
-        # local_path[-18:-7] retreives the file accession from the path
-        unzipped_modified_bed_path = local_path[-18:-7] + '_modified.bed'
-    try:
-        file_stat = os.stat(local_path)
-    #  When file is not on S3 we are getting FileNotFoundError
-    except FileNotFoundError:
-        if job['run'] > job['upload_expiration']:
-            errors['file_not_found'] = 'File has not been uploaded yet.'
-        else:
-            errors['file_not_found_unexpired_credentials'] = (
-                'File has not been uploaded yet, but the credentials are not expired, '
-                'so the status was not changed.'
-            )
-        job['skip'] = True
-        return job
-    #  Happens when there is S3 connectivity issue: "OSError: [Errno 107] Transport endpoint is not connected"
-    except OSError:
-        errors['file_check_skipped_due_to_s3_connectivity'] = (
-            'File check was skipped due to temporary S3 connectivity issues'
-        )
-        job['skip'] = True
-        return job
-    else:
+
+#        file_stat = os.stat(local_path)
+#    #  When file is not on S3 we are getting FileNotFoundError
+#    except FileNotFoundError:
+#        if job['run'] > job['upload_expiration']:
+#            errors['file_not_found'] = 'File has not been uploaded yet.'
+#        else:
+#            errors['file_not_found_unexpired_credentials'] = (
+#                'File has not been uploaded yet, but the credentials are not expired, '
+#                'so the status was not changed.'
+#            )
+#        job['skip'] = True
+#        return job
+#    #  Happens when there is S3 connectivity issue: "OSError: [Errno 107] Transport endpoint is not connected"
+#    except OSError:
+#        errors['file_check_skipped_due_to_s3_connectivity'] = (
+#            'File check was skipped due to temporary S3 connectivity issues'
+#        )
+#        job['skip'] = True
+#        return job
+#    else:
         result["file_size"] = file_stat.st_size
         result["last_modified"] = datetime.datetime.utcfromtimestamp(
-            file_stat.st_mtime).isoformat() + 'Z'
+                file_stat.st_mtime).isoformat() + 'Z'
 
         # Faster than doing it in Python.
         try:
             output = subprocess.check_output(
-                ['md5sum', local_path], stderr=subprocess.STDOUT)
+                    ['md5sum', local_path], stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError as e:
             errors['md5sum'] = e.output.decode(errors='replace').rstrip('\n')
         else:
@@ -861,92 +880,105 @@ def check_file(config, session, url, job):
                 int(result['md5sum'], 16)
             except ValueError:
                 errors['md5sum'] = output.decode(errors='replace').rstrip('\n')
-            if result['md5sum'] != item['md5sum']:
-                errors['md5sum'] = \
-                    'checked %s does not match item %s' % (result['md5sum'], item['md5sum'])
-                update_content_error(errors,
-                                     'File metadata-specified md5sum {} '.format(item['md5sum']) +
-                                     'does not match the calculated md5sum {}'.format(result['md5sum']))
+#            if result['md5sum'] != item['md5sum']:
+#                errors['md5sum'] = \
+#                    'checked %s does not match item %s' % (result['md5sum'], item['md5sum'])
+#                update_content_error(errors,
+#                                     'File metadata-specified md5sum {} '.format(item['md5sum']) +
+#                                     'does not match the calculated md5sum {}'.format(result['md5sum']))
         try:
             is_gzipped = is_path_gzipped(local_path)
         except Exception as e:
             return job
+#        else:
+#            if item['file_format'] not in GZIP_TYPES:
+#                if is_gzipped:
+#                    errors['gzip'] = 'Expected un-gzipped file'
+#                    update_content_error(errors, 'Expected un-gzipped file')
+#            elif not is_gzipped:
+#                errors['gzip'] = 'Expected gzipped file'
+#                update_content_error(errors, 'Expected gzipped file')
+#            else:
+#                # May want to replace this with something like:
+#                # $ cat $local_path | tee >(md5sum >&2) | gunzip | md5sum
+#                # or http://stackoverflow.com/a/15343686/199100
+        try:
+            output = subprocess.check_output(
+                'set -o pipefail; gunzip --stdout %s | md5sum' % quote(local_path),
+                shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError as e:
+            errors['content_md5sum'] = e.output.decode(errors='replace').rstrip('\n')
         else:
-            if item['file_format'] not in GZIP_TYPES:
-                if is_gzipped:
-                    errors['gzip'] = 'Expected un-gzipped file'
-                    update_content_error(errors, 'Expected un-gzipped file')
-            elif not is_gzipped:
-                errors['gzip'] = 'Expected gzipped file'
-                update_content_error(errors, 'Expected gzipped file')
-            else:
-                # May want to replace this with something like:
-                # $ cat $local_path | tee >(md5sum >&2) | gunzip | md5sum
-                # or http://stackoverflow.com/a/15343686/199100
-                try:
-                    output = subprocess.check_output(
-                        'set -o pipefail; gunzip --stdout %s | md5sum' % quote(local_path),
-                        shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
-                except subprocess.CalledProcessError as e:
-                    errors['content_md5sum'] = e.output.decode(errors='replace').rstrip('\n')
-                else:
-                    check_for_contentmd5sum_conflicts(item, result, output, errors, session, url)
+            check_for_contentmd5sum_conflicts(item, result, output, errors, session, url)
+#
+#                if item['file_format'] == 'bed':
+#                    # try to count comment lines
+#                    try:
+#                        output = subprocess.check_output(
+#                            'set -o pipefail; gunzip --stdout {} | grep -c \'^#\''.format(local_path),
+#                            shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
+#                    except subprocess.CalledProcessError as e:
+#                        # empty file, or other type of error
+#                        if e.returncode > 1:
+#                            errors['grep_bed_problem'] = e.output.decode(errors='replace').rstrip('\n')
+#                    # comments lines found, need to calculate content md5sum as usual
+#                    # remove the comments and create modified.bed to give validateFiles scritp
+#                    # not forget to remove the modified.bed after finishing
+#                    else:
+#                        try:
+#                            is_local_bed_present = True
+#                            subprocess.check_output(
+#                                'set -o pipefail; gunzip --stdout {} | grep -v \'^#\' > {}'.format(
+#                                    local_path,
+#                                    unzipped_modified_bed_path),
+#                                shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
+#                        except subprocess.CalledProcessError as e:
+#                            # empty file
+#                            if e.returncode > 1:
+#                                errors['grep_bed_problem'] = e.output.decode(errors='replace').rstrip('\n')
+#                            else:
+#                                errors['bed_comments_remove_failure'] = e.output.decode(
+#                                    errors='replace').rstrip('\n')
+#
+#            if is_local_bed_present:
+#                check_format(config['encValData'], job, unzipped_modified_bed_path)
+#                remove_local_file(unzipped_modified_bed_path, errors)
+#            else:
+#                check_format(config['encValData'], job, local_path)
+#
+#            if item['file_format'] == 'fastq' and not errors.get('validateFiles'):
+        try:
+            process_fastq_file(job,
+                subprocess.Popen(['gunzip --stdout {}'.format(
+                    local_path)],
+                    shell=True,
+                    executable='/bin/bash',
+                    stdout=subprocess.PIPE),
+                session, url)
+        except subprocess.CalledProcessError as e:
+            errors['fastq_information_extraction'] = 'Failed to extract information from ' + \
+                local_path
+#        if item['status'] != 'uploading':
+#            errors['status_check'] = \
+#                "status '{}' is not 'uploading'".format(item['status'])
+#        if errors:
+#            errors['gathered information'] = 'Gathered information about the file was: {}.'.format(
+#                str(result))
+#
+    return job
 
-                if item['file_format'] == 'bed':
-                    # try to count comment lines
-                    try:
-                        output = subprocess.check_output(
-                            'set -o pipefail; gunzip --stdout {} | grep -c \'^#\''.format(local_path),
-                            shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
-                    except subprocess.CalledProcessError as e:
-                        # empty file, or other type of error
-                        if e.returncode > 1:
-                            errors['grep_bed_problem'] = e.output.decode(errors='replace').rstrip('\n')
-                    # comments lines found, need to calculate content md5sum as usual
-                    # remove the comments and create modified.bed to give validateFiles scritp
-                    # not forget to remove the modified.bed after finishing
-                    else:
-                        try:
-                            is_local_bed_present = True
-                            subprocess.check_output(
-                                'set -o pipefail; gunzip --stdout {} | grep -v \'^#\' > {}'.format(
-                                    local_path,
-                                    unzipped_modified_bed_path),
-                                shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
-                        except subprocess.CalledProcessError as e:
-                            # empty file
-                            if e.returncode > 1:
-                                errors['grep_bed_problem'] = e.output.decode(errors='replace').rstrip('\n')
-                            else:
-                                errors['bed_comments_remove_failure'] = e.output.decode(
-                                    errors='replace').rstrip('\n')
 
-            if is_local_bed_present:
-                check_format(config['encValData'], job, unzipped_modified_bed_path)
-                remove_local_file(unzipped_modified_bed_path, errors)
-            else:
-                check_format(config['encValData'], job, local_path)
+# jychien: Define a function for processing s3 files
+# using boto3 to calculate md5sum and open file
+def check_s3_file(config, session, url, job):
+    result = job['result'] = {}
+    errors = job['errors']
 
-            if item['file_format'] == 'fastq' and not errors.get('validateFiles'):
-                try:
-                    process_fastq_file(job,
-                                    subprocess.Popen(['gunzip --stdout {}'.format(
-                                                        local_path)],
-                                                        shell=True,
-                                                        executable='/bin/bash',
-                                                        stdout=subprocess.PIPE),
-                                    session, url)
-                except subprocess.CalledProcessError as e:
-                    errors['fastq_information_extraction'] = 'Failed to extract information from ' + \
-                                                            local_path
-        if item['status'] != 'uploading':
-            errors['status_check'] = \
-                "status '{}' is not 'uploading'".format(item['status'])
-        if errors:
-            errors['gathered information'] = 'Gathered information about the file was: {}.'.format(
-                str(result))
-
-        return job
+    result['last_modified'] = job['s3_object'].last_modified.strftime("%Y-%m-%d %H:%M:%S")
+    result['file_size'] = job['s3_object'].size
+    result['etag'] = job['s3_object'].e_tag
+    
+    return job
 
 
 def remove_local_file(path_to_the_file, errors):
@@ -964,95 +996,102 @@ def remove_local_file(path_to_the_file, errors):
 def extract_accession(file_path):
     return file_path.split('/')[-1].split('.')[0]
 
-def fetch_files(session, url, search_query, out, include_unexpired_upload=False, file_list=None, local_file=None):
+# jychien: add option for s3 object 
+def fetch_files(session, url, search_query, out, include_unexpired_upload=False, file_list=None, local_file=None, s3_object=None):
     graph = []
     # checkfiles using a file with a list of file accessions to be checked
-    if file_list:
-        r = None
-        ACCESSIONS = []
-        if os.path.isfile(file_list):
-            ACCESSIONS = [line.rstrip('\n') for line in open(file_list)]
-        for acc in ACCESSIONS:
-            r = session.get(
-                urljoin(url, '/search/?field=@id&limit=all&type=File&accession=' + acc))
-            try:
-                r.raise_for_status()
-            except requests.HTTPError:
-                return
-            else:
-                local = copy.deepcopy(r.json()['@graph'])
-                graph.extend(local)
+#    if file_list:
+#        r = None
+#        ACCESSIONS = []
+#        if os.path.isfile(file_list):
+#            ACCESSIONS = [line.rstrip('\n') for line in open(file_list)]
+#        for acc in ACCESSIONS:
+#            r = session.get(
+#                urljoin(url, '/search/?field=@id&limit=all&type=File&accession=' + acc))
+#            try:
+#                r.raise_for_status()
+#            except requests.HTTPError:
+#                return
+#            else:
+#                local = copy.deepcopy(r.json()['@graph'])
+#                graph.extend(local)
     # checkfiles using a query
-    elif local_file:
-        r = session.get(
-            urljoin(url, '/search/?field=@id&limit=all&type=File&accession=' + extract_accession(local_file)))
-        try:
-            r.raise_for_status()
-        except requests.HTTPError:
-            return
-        else:
-            graph = r.json()['@graph']
-    else:
-        r = session.get(
-            urljoin(url, '/search/?field=@id&limit=all&type=File&' + search_query))
-        try:
-            r.raise_for_status()
-        except requests.HTTPError:
-            return
-        else:
-            graph = r.json()['@graph']
+#    elif local_file:
+#        r = session.get(
+#            urljoin(url, '/search/?field=@id&limit=all&type=File&accession=' + extract_accession(local_file)))
+#        try:
+#            r.raise_for_status()
+#        except requests.HTTPError:
+#            return
+#        else:
+#            graph = r.json()['@graph']
+#    else:
+#        r = session.get(
+#            urljoin(url, '/search/?field=@id&limit=all&type=File&' + search_query))
+#        try:
+#            r.raise_for_status()
+#        except requests.HTTPError:
+#            return
+#        else:
+#            graph = r.json()['@graph']
+#
+#    for result in graph:
+    job = {
+#        '@id': result['@id'],
+        'errors': {},
+        'run': datetime.datetime.utcnow().isoformat() + 'Z',
+    }
+#        errors = job['errors']
+#        item_url = urljoin(url, job['@id'])
+#        fileObject = session.get(item_url)
+#        r = session.get(item_url + '@@upload?datastore=database')
+#        if not fileObject.ok:
+#            errors['file_HTTPError'] = ('HTTP error: unable to get file object')
+#        if fileObject.ok and r.ok:
+#            upload_credentials = r.json()['@graph'][0]['upload_credentials']
+#            try: 
+#                if fileObject.json()['s3_uri']:
+#                    job['download_url'] = fileObject.json()['s3_uri']
+#            except KeyError:
+#                try:
+#                    job['download_url'] = upload_credentials['upload_url']
+#                except KeyError:
+#                    errors['download_url_missing'] = ('download url is missing')
+#            # Files grandfathered from EDW have no upload expiration.
+#            job['upload_expiration'] = upload_credentials.get('expiration', '')
+#            # Only check files that will not be changed during the check.
+#            if job['run'] < job['upload_expiration']:
+#                if not include_unexpired_upload:
+#                    job['errors']['unexpired_credentials'] = (
+#                        'File status have not been changed, the file '
+#                        'check was skipped due to file\'s '
+#                        'unexpired upload credentials'
+#                    )
+#        else:
+#            job['errors']['get_upload_url_request'] = \
+#                '{} {}\n{}'.format(r.status_code, r.reason, r.text)
+#        r = session.get(item_url + '?frame=edit&datastore=database')
+#        if r.ok:
+#            item = job['item'] = r.json()
+#            job['etag'] = r.headers['etag']
+#        else:
+#            errors['get_edit_request'] = \
+#                '{} {}\n{}'.format(r.status_code, r.reason, r.text)
+#
+#        if errors:
+#            # Probably a transient error
+#            job['skip'] = True
 
-    for result in graph:
-        job = {
-            '@id': result['@id'],
-            'errors': {},
-            'run': datetime.datetime.utcnow().isoformat() + 'Z',
-        }
-        errors = job['errors']
-        item_url = urljoin(url, job['@id'])
-        fileObject = session.get(item_url)
-        r = session.get(item_url + '@@upload?datastore=database')
-        if not fileObject.ok:
-            errors['file_HTTPError'] = ('HTTP error: unable to get file object')
-        if fileObject.ok and r.ok:
-            upload_credentials = r.json()['@graph'][0]['upload_credentials']
-            try: 
-                if fileObject.json()['s3_uri']:
-                    job['download_url'] = fileObject.json()['s3_uri']
-            except KeyError:
-                try:
-                    job['download_url'] = upload_credentials['upload_url']
-                except KeyError:
-                    errors['download_url_missing'] = ('download url is missing')
-            # Files grandfathered from EDW have no upload expiration.
-            job['upload_expiration'] = upload_credentials.get('expiration', '')
-            # Only check files that will not be changed during the check.
-            if job['run'] < job['upload_expiration']:
-                if not include_unexpired_upload:
-                    job['errors']['unexpired_credentials'] = (
-                        'File status have not been changed, the file '
-                        'check was skipped due to file\'s '
-                        'unexpired upload credentials'
-                    )
-        else:
-            job['errors']['get_upload_url_request'] = \
-                '{} {}\n{}'.format(r.status_code, r.reason, r.text)
-        r = session.get(item_url + '?frame=edit&datastore=database')
-        if r.ok:
-            item = job['item'] = r.json()
-            job['etag'] = r.headers['etag']
-        else:
-            errors['get_edit_request'] = \
-                '{} {}\n{}'.format(r.status_code, r.reason, r.text)
+# jychien: if there is a local file, print logging to screen,
+# Or else store local_file as None so that local_file will not be processed
+    if local_file:
+        job['local_file'] = local_file
+        print("Processing files: " + job['local_file'])
+    elif s3_object:
+        job['local_file'] = None
+        job['s3_object'] = s3_object
 
-        if errors:
-            # Probably a transient error
-            job['skip'] = True
-
-        if local_file:
-            job['local_file'] = local_file
-
-        yield job
+    yield job
 
 
 def patch_file(session, url, job):
@@ -1130,20 +1169,20 @@ def wait_until_indexed(session, url):
 
 def run(out, err, url, username, password, encValData, mirror, search_query, file_list=None,
         bot_token=None, local_file=None, processes=None, include_unexpired_upload=False,
-        dry_run=False, json_out=False):
+        dry_run=False, json_out=False, s3_bucket=None):
     import functools
     import multiprocessing
 
     session = requests.Session()
-    session.auth = (username, password)
-    session.headers['Accept'] = 'application/json'
+#    session.auth = (username, password)
+#    session.headers['Accept'] = 'application/json'
 
     config = {
         'encValData': encValData,
         'mirror': mirror,
     }
 
-    dr = ""
+#    dr = ""
     if dry_run:
         dr = "-- Dry Run"
     try:
@@ -1161,44 +1200,50 @@ def run(out, err, url, username, password, encValData, mirror, search_query, fil
         ip = ''
 
     # waiting for complete indexing of the site prior to checkfiles run!
+
+# jychien: Do not create a session
     try:
-        wait_until_indexed(session, url)
+        print("Skip creating a session and indexing")
+#        wait_until_indexed(session, url)
+
+# jychien: Do not expect an exception
     except requests.exceptions.RequestException as e:
-        error_waiting = 'STARTING Checkfiles version ' \
-                    '{} ({}) ({}): with {} processes {} ' \
-                    'on {} at {}. Error while waiting for ' \
-                    'the site to be fully indexed : {}'.format(
-                        version,
-                        url,
-                        search_query,
-                        nprocesses,
-                        dr,
-                        ip,
-                        datetime.datetime.now(),
-                        str(e))
-        if bot_token:
-            sc = SlackClient(bot_token)
-            sc.api_call(
-                "chat.postMessage",
-                channel="#bot-reporting",
-                text=error_waiting,
-                as_user=True
-            )
-        out.write('ERROR while waiting to the site to be fully indexed\n' + str(e) + '\n')
-        out.flush()
+        print("No request error")
+#        error_waiting = 'STARTING Checkfiles version ' \
+#                    '{} ({}) ({}): with {} processes {} ' \
+#                    'on {} at {}. Error while waiting for ' \
+#                    'the site to be fully indexed : {}'.format(
+#                        version,
+#                        url,
+#                        search_query,
+#                        nprocesses,
+#                        dr,
+#                        ip,
+#                        datetime.datetime.now(),
+#                        str(e))
+#        if bot_token:
+#            sc = SlackClient(bot_token)
+#            sc.api_call(
+#                "chat.postMessage",
+#                channel="#bot-reporting",
+#                text=error_waiting,
+#                as_user=True
+#            )
+#        out.write('ERROR while waiting to the site to be fully indexed\n' + str(e) + '\n')
+#        out.flush()
     else:
         initiating_run = 'STARTING Checkfiles version ' + \
             '{} ({}) ({}): with {} processes {} on {} at {}'.format(
                 version, url, search_query, nprocesses, dr, ip, datetime.datetime.now())
-        if bot_token:
-            sc = SlackClient(bot_token)
-            sc.api_call(
-                "chat.postMessage",
-                channel="#bot-reporting",
-                text=initiating_run,
-                as_user=True
-            )
-
+#        if bot_token:
+#            sc = SlackClient(bot_token)
+#            sc.api_call(
+#                "chat.postMessage",
+#                channel="#bot-reporting",
+#                text=initiating_run,
+#                as_user=True
+#            )
+#
         out.write(initiating_run + '\n')
         out.flush()
         if processes == 0:
@@ -1208,23 +1253,39 @@ def run(out, err, url, username, password, encValData, mirror, search_query, fil
             pool = multiprocessing.Pool(processes=processes)
             imap = pool.imap_unordered
 
-        jobs = fetch_files(session, url, search_query, out, include_unexpired_upload, file_list, local_file)
-        if not json_out:
-            headers = '\t'.join(['Accession', 'Lab', 'Errors', 'Aliases', 'Download URL',
-                                 'Upload Expiration'])
-            out.write(headers + '\n')
-            out.flush()
+# jychien: access s3 bucket, and iterate through files in bucket
+# for each fastq, run check_s3_filee to process file
+        if s3_bucket:
+            s3 = boto3.resource('s3')
+            bucket = s3.Bucket(s3_bucket)
+            bucket_files = list(bucket.objects.filter(Prefix='fastq/'))
+            out.write("s3_bucket\ts3_object.key\tresults\n")
+
+            # For each object in bucket, if it is a fastq file, fetch information and run check_s3_file
+            for s3_object in bucket_files:
+                if s3_object.key.endswith('fastq.gz'):
+                    jobs = fetch_files(session, url, search_query, out, include_unexpired_upload, file_list, local_file, s3_object)
+                    for job in jobs:
+                        check_s3_file(config, session, url, job)
+                        out.write("%s\t%s\t%s\n" % (bucket.name,job['s3_object'].key, job['result']))
+
+        jobs = fetch_files(session, url, search_query, out, include_unexpired_upload, file_list, local_file, s3_bucket)
+#        if not json_out:
+#            headers = '\t'.join(['Accession', 'Lab', 'Errors', 'Aliases', 'Download URL',
+#                                 'Upload Expiration'])
+#            out.write(headers + '\n')
+#            out.flush()
         for job in imap(functools.partial(check_file, config, session, url), jobs):
-            if not dry_run:
-                patch_file(session, url, job)
-            tab_report = '\t'.join([
-                job['item'].get('accession', 'UNKNOWN'),
-                job['item'].get('lab', 'UNKNOWN'),
-                str(job['errors']),
-                str(job['item'].get('aliases', ['n/a'])),
-                job.get('download_url', ''),
-                job.get('upload_expiration', ''),
-                ])
+#            if not dry_run:
+#                patch_file(session, url, job)
+#            tab_report = '\t'.join([
+#                job['item'].get('accession', 'UNKNOWN'),
+#                job['item'].get('lab', 'UNKNOWN'),
+#                str(job['errors']),
+#                str(job['item'].get('aliases', ['n/a'])),
+#                job.get('download_url', ''),
+#                job.get('upload_expiration', ''),
+#                ])
             if json_out:
                 out.write(json.dumps(job) + '\n')
                 out.flush()
@@ -1232,11 +1293,18 @@ def run(out, err, url, username, password, encValData, mirror, search_query, fil
                     err.write(json.dumps(job) + '\n')
                     err.flush()
             else:
-                out.write(tab_report + '\n')
-                out.flush()
+#                out.write(tab_report + '\n')
+#                out.flush()
                 if job['errors']:
                     err.write(tab_report + '\n')
                     err.flush()
+        
+
+# jychien: write results to file
+        if local_file:
+            out.write("local_file\trun\tresults\n")
+            out.write("%s\t%s\t%s\n" % (job['local_file'],job['run'],job['result']))
+            out.flush()
 
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.datetime.now())
         out.write(finishing_run + '\n')
@@ -1246,27 +1314,27 @@ def run(out, err, url, username, password, encValData, mirror, search_query, fil
         error_filename = err.name
         err.close()
 
-        if bot_token:
-            with open(output_filename, 'r') as output_file:
-                x = sc.api_call("files.upload",
-                                title=output_filename,
-                                channels='#bot-reporting',
-                                content=output_file.read(),
-                                as_user=True)
-
-            with open(error_filename, 'r') as output_file:
-                x = sc.api_call("files.upload",
-                                title=error_filename,
-                                channels='#bot-reporting',
-                                content=output_file.read(),
-                                as_user=True)
-
-            sc.api_call(
-                "chat.postMessage",
-                channel="#bot-reporting",
-                text=finishing_run,
-                as_user=True
-            )
+#        if bot_token:
+#            with open(output_filename, 'r') as output_file:
+#                x = sc.api_call("files.upload",
+#                                title=output_filename,
+#                                channels='#bot-reporting',
+#                                content=output_file.read(),
+#                                as_user=True)
+#
+#            with open(error_filename, 'r') as output_file:
+#                x = sc.api_call("files.upload",
+#                                title=error_filename,
+#                                channels='#bot-reporting',
+#                                content=output_file.read(),
+#                                as_user=True)
+#
+#            sc.api_call(
+#                "chat.postMessage",
+#                channel="#bot-reporting",
+#                text=finishing_run,
+#                as_user=True
+#            )
 
 def main():
     import argparse
@@ -1310,6 +1378,9 @@ def main():
         '--local-file', default='',
         help="path to local file to check")
     parser.add_argument('url', help="server to post to")
+    # jychien: added argument to take in a s3 bucket
+    parser.add_argument(
+        '--s3-bucket', default='', help="s3 bucket that contains the fastq files")
     args = parser.parse_args()
     run(**vars(args))
 
