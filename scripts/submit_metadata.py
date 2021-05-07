@@ -39,7 +39,7 @@ ORDER = [
     'mouse_postnatal_donor',
     'mouse_prenatal_donor',
     'tissue',
-	'tissue_section',
+    'tissue_section',
     'cell_culture',
     'organoid',
     'suspension',
