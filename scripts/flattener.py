@@ -27,8 +27,10 @@ cell_metadata = {
 		'age_display',
 		'sex',
 		'ethnicity.term_id',
+		'ethnicity.term_name',
 		'development_ontology.development_slims',
 		'development_ontology.term_id',
+		'development_ontology.term_name',
 		'diseases.term_id',
 		'diseases.term_name',
 		'body_mass_index',
@@ -40,6 +42,7 @@ cell_metadata = {
 		'uuid',
 		'preservation_method',
 		'biosample_ontology.term_id',
+		'biosample_ontology.term_name',
 		'biosample_ontology.organ_slims',
 		'biosample_ontology.cell_slims',
 		'diseases.term_id',
@@ -59,6 +62,7 @@ cell_metadata = {
 	'library': [
 		'uuid',
 		'protocol.assay_ontology.term_id',
+		'protocol.assay_ontology.term_name',
 		'@id',
 		'dataset'
 		]
@@ -68,8 +72,7 @@ dataset_metadata = {
 	'final_matrix': [
 		'description',
 		'genome_annotation',
-		'default_embedding',
-		'dataset'
+		'default_embedding'
 		]
 	}
 
@@ -81,13 +84,17 @@ annot_fields = [
 ]
 
 prop_map = {
+	'sample_biosample_ontology_term_name': 'tissue',
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
+	'library_protocol_assay_ontology_term_name': 'assay',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
+	'donor_ethnicity_term_name': 'ethnicity',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
 	'donor_development_ontology_term_id': 'development_stage_ontology_term_id',
+	'donor_development_ontology_term_name': 'development_stage',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
 	'matrix_genome_annotation': 'genome_annotation_version',
@@ -101,8 +108,9 @@ prop_map = {
 }
 
 unreported_value = 'unknown'
-schema_version = '2.0.0'
-flat_version = '4'
+schema_version = '1.1.0'
+encoding_version = '0.1.0'
+flat_version = '3.9'
 
 EPILOG = '''
 Examples:
@@ -379,6 +387,13 @@ def report_dataset(donor_objs, matrix, dataset):
 				x_norm = norm_meth
 
 	ds_results['layer_descriptions'] = layer_descs
+	org_id = set()
+	org_name = set()
+	for obj in donor_objs:
+		org_id.add(obj['organism']['taxon_id'])
+		org_name.add(obj['organism']['scientific_name'])
+	ds_results['organism_ontology_term_id'] = ','.join(org_id)
+	ds_results['organism'] = ','.join(org_name)
 	if x_norm == '' or x_norm == unreported_value:
 		ds_results['normalization'] = 'none'
 	else:
@@ -677,6 +692,7 @@ def get_sex_ontology(donor_df):
 	for sex in sexes:
 		if sex in term_lookup:
 			donor_df.loc[donor_df['sex'] == sex, 'sex_ontology_term_id'] = term_lookup[sex]
+			donor_df.loc[donor_df['sex'] == sex, 'sex_ontology_term_name'] = sex
 		elif sex == 'unknown' or sex == 'mixed':
 			donor_df.loc[donor_df['sex'] == sex, 'sex_ontology_term_id'] = 'unknown'
 		else:
@@ -709,12 +725,13 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
 		cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
 	else:
 		cxg_adata_raw.var.insert(0, 'feature_biotype', 'gene') 
-	keep = ['feature_biotype', 'gene_ids']
+	cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'gene_ids': 'gene_identifier'})
+	keep = ['feature_biotype', 'gene_identifier']
 	remove = [x for x in cxg_adata_raw.var.columns.to_list() if x not in keep]
 	for r in remove:
 		cxg_adata_raw.var.drop(columns=r, inplace=True)
 
-	if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
+	if 'gene_identifier' in cxg_adata_raw.var.columns.to_list():
 		# Check for gene symbols that are redudant and have suffix
 		norm_index = set(cxg_adata.var.index.to_list())
 		raw_index = set(cxg_adata_raw.var.index.to_list())
@@ -728,10 +745,6 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
 		cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_redundant_with_suffix]]
 		cxg_adata_raw.var_names_make_unique()
 		cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
-		cxg_adata.var['gene_symbols'] = cxg_adata.var.index
-		cxg_adata_raw.var['gene_symbols'] = cxg_adata_raw.var.index
-		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
-		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		cxg_adata.var.index.name = None
 		cxg_adata_raw.var.index.name = None
 	return cxg_adata, cxg_adata_raw
@@ -885,8 +898,8 @@ def main(mfinal_id):
 
 	results = {}
 	tmp_dir = 'matrix_files'
-	##### os.mkdir(tmp_dir)
-	##### download_file(mfinal_obj, tmp_dir)
+	os.mkdir(tmp_dir)
+	download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -974,7 +987,7 @@ def main(mfinal_id):
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
-			##### download_file(mxr, tmp_dir)
+			download_file(mxr, tmp_dir)
 			if mxr['submitted_file_name'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
 				adata_raw = sc.read_10x_h5(local_path)
@@ -1054,15 +1067,9 @@ def main(mfinal_id):
 
 	# Set uns and obsm parameters
 	cxg_uns = ds_results
-	cxg_uns['schema_version'] = schema_version
+	cxg_uns['version'] = {'corpora_schema_version': schema_version, 'corpora_encoding_version': encoding_version}
 	cxg_obsm = get_embeddings(mfinal_adata)
 
-	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
-	# Also add calculated fields to df 
-	if 'NCIT:C17998' in df['ethnicity_ontology_term_id'].unique():
-		df.loc[df['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = df['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
-	df['is_primary_data'] = df['library_dataset'] == ds_results['matrix_dataset']
-	del cxg_uns['matrix_dataset']
 
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
@@ -1121,9 +1128,9 @@ def main(mfinal_id):
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'library_dataset',\
-			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'disease',\
-			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'cell_type',\
-			'sample_biosample_ontology_cell_slims', 'donor_development_ontology_development_slims']
+			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', \
+			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', \
+			'sample_biosample_ontology_cell_slims', 'donor_development_ontology_development_slims', 'sex_ontology_term_id']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
@@ -1225,7 +1232,6 @@ def main(mfinal_id):
 			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
 			cxg_adata = set_ensembl_return[0]
 			cxg_adata_raw = set_ensembl_return[1]
-			print('ENSG00000158122\t{}'.format(np.count_nonzero(cxg_adata[:,['ENSG00000158122']].X.toarray())))
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
 			if len(converted_h5ad) == 1:
@@ -1236,7 +1242,7 @@ def main(mfinal_id):
 			print(cxg_adata.raw.var.columns.to_list())
 			cxg_adata.write(results_file)
 
-	##### shutil.rmtree(tmp_dir)
+	shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
