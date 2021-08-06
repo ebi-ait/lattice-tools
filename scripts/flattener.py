@@ -19,6 +19,7 @@ import requests
 import numpy as np
 import collections
 import logging
+import gc
 
 
 cell_metadata = {
@@ -47,6 +48,7 @@ cell_metadata = {
 		'biosample_ontology.cell_slims',
 		'diseases.term_id',
 		'diseases.term_name',
+		'spatial_information',
 		'treatment_summary'
 		],
 	'tissue_section': [
@@ -86,6 +88,7 @@ annot_fields = [
 prop_map = {
 	'sample_biosample_ontology_term_name': 'tissue',
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
+	'sample_spatial_information': 'spatial_information',
 	'library_protocol_assay_ontology_term_name': 'assay',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_body_mass_index': 'donor_BMI',
@@ -395,9 +398,9 @@ def report_dataset(donor_objs, matrix, dataset):
 	ds_results['organism_ontology_term_id'] = ','.join(org_id)
 	ds_results['organism'] = ','.join(org_name)
 	if x_norm == '' or x_norm == unreported_value:
-		ds_results['normalization'] = 'none'
+		ds_results['X_normalization'] = 'none'
 	else:
-		ds_results['normalization'] = x_norm
+		ds_results['X_normalization'] = x_norm
 
 	return ds_results
 
@@ -518,6 +521,8 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 			converted_h5ad.append((h5ad_file, 'X', assay))
 		else:
 			converted_h5ad.append((h5ad_file,'raw.X', assay))
+	robjects.r('rm(robj)')
+	robjects.r('rm(robj_new)')
 	return converted_h5ad
 
 
@@ -551,7 +556,7 @@ def trim_cell_slims(df_annot):
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
-		sys.exit("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
+		print("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
@@ -560,10 +565,10 @@ def quality_check(adata):
 
 
 # Return uniqued list separated by ', '
-def clean_list(lst):
+def clean_list(lst, exp_disease):
 	lst = lst.split(',')
-	if unreported_value in lst:
-		lst.remove(unreported_value)
+	lst = [i for i in lst if i != unreported_value]
+	lst = [i for i in lst if i != exp_disease]
 	lst = list(set(lst))
 	diseases_str = '[{}]'.format(', '.join(lst))
 	return diseases_str
@@ -597,7 +602,7 @@ def report_diseases(mxr_df, exp_disease):
 			','.join(mxr_df['sample_diseases_term_id'].unique()).split(','), ','.join(mxr_df['donor_diseases_term_id'].unique()).split(',')))
 	# 'reported_diseases' is a list of all unique diseases from donor and samples
 	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
-	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(clean_list)
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(clean_list, exp_disease=exp_disease['term_name'])
 
 
 # Demultiplex experimental metadata by finding demultiplexed suspension
@@ -720,6 +725,7 @@ def add_nan(cxg_adata, cxg_adata_raw):
 # Make sure the indices are the same order for both anndata objects & clean up var metadata
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
 def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
+	print("IN SET_ENSEMBL")
 	if 'feature_types' in cxg_adata_raw.var.columns.to_list():
 		cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'feature_types': 'feature_biotype'})
 		cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
@@ -796,17 +802,18 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes, raw_versions)
 	# Drop redundant genes symbols from normalized matrix within a single version and clean up redundant columns in gene_pd_ensembl and gene_pd_symbol
 	gene_ensembl_columns_to_drop = []
 	for i in range(len(gene_pd_ensembl.columns.to_list())):
-		if raw_versions[i] not in versions_checked:
-			versions_checked.append(raw_versions[i])
-			redundant_within_version.extend([item for item, count in collections.Counter(gene_pd_ensembl.iloc[:,i].dropna().to_list()).items() if count > 1])
-		else:
-			gene_ensembl_columns_to_drop.append(gene_pd_ensembl.columns.to_list()[i])
-	gene_pd_ensembl.drop(columns=gene_ensembl_columns_to_drop, inplace=True)
+	#	if raw_versions[i] not in versions_checked:
+	#		versions_checked.append(raw_versions[i])
+		redundant_within_version.extend([item for item, count in collections.Counter(gene_pd_ensembl.iloc[:,i].dropna().to_list()).items() if count > 1])
+	#	else:
+	#		gene_ensembl_columns_to_drop.append(gene_pd_ensembl.columns.to_list()[i])
+	#gene_pd_ensembl.drop(columns=gene_ensembl_columns_to_drop, inplace=True)
 	redundant_within_version = list(set(redundant_within_version))
 	stats['redundant_within_version'].extend(redundant_within_version)
 	redundant.extend(redundant_within_version)
 
 	# Store potential collapses in dictionary
+	#gene_pd_ensembl.to_csv("/Users/jenny/Lattice/lattice-tools/scripts/gene_pd_ensembl_df.csv", index=True, header=True)
 	genes_to_collapse_df = gene_pd_ensembl[gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: len(x.unique())>1)==True]
 	genes_to_collapse_df.to_csv("/Users/jenny/Lattice/lattice-tools/scripts/collapse_df.csv", index=True, header=False)
 	genes_to_collapse_dict = genes_to_collapse_df.to_dict(orient='index')
@@ -858,12 +865,12 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes, raw_versions)
 	redundant.extend(chain_redundant_genes)
 
 	stats['gene_multi_ensembl'] = gene_multi_ensembl
-	stats['collapsed'] = genes_to_collapse_final.keys()
-	stats['redundant'] = redundant
+	stats['collapsed'] = list(genes_to_collapse_final.keys())
+	stats['redundant'] = list(set(redundant))
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
-		logging.info("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
+		logging.info("{}\t{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
 
 	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant
 
@@ -980,14 +987,14 @@ def main(mfinal_id):
 					#get_organ_slim(row_to_add, ' (cell culture)')
 					get_cell_slim(row_to_add, ' (cell_culture)')
 				else:
-					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
+					print('WARNING: Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
 			row_to_add = row_to_add.drop(labels='sample_biosample_ontology_organ_slims')
 
 		df = df.append(row_to_add)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
-			download_file(mxr, tmp_dir)
+			##### download_file(mxr, tmp_dir)
 			if mxr['submitted_file_name'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
 				adata_raw = sc.read_10x_h5(local_path)
@@ -1034,6 +1041,7 @@ def main(mfinal_id):
 	raw_matrix_mapping = []
 	cell_mapping_rev_dct = {}
 	normalize_drop = []
+	redundant = []
 	if summary_assay == 'RNA':
 		# If raw matrices are annotated to multiple gencode versions, concatenate on ensembl ID
 		if len(mfinal_obj.get('genome_annotations',[])) > 1:
@@ -1069,7 +1077,6 @@ def main(mfinal_id):
 	cxg_uns = ds_results
 	cxg_uns['version'] = {'corpora_schema_version': schema_version, 'corpora_encoding_version': encoding_version}
 	cxg_obsm = get_embeddings(mfinal_adata)
-
 
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
@@ -1130,7 +1137,7 @@ def main(mfinal_id):
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'library_dataset',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', \
 			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', \
-			'sample_biosample_ontology_cell_slims', 'donor_development_ontology_development_slims', 'sex_ontology_term_id']
+			'sample_biosample_ontology_cell_slims', 'donor_development_ontology_development_slims', 'sex_ontology_term_id', 'donor_age']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
@@ -1140,7 +1147,7 @@ def main(mfinal_id):
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
-				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']':
+				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
 					cxg_obs.drop(columns=col, inplace=True)
 	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
 		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
@@ -1162,21 +1169,30 @@ def main(mfinal_id):
 					print('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 	else:
 		# Need to add new row for collapsed gene and remove original genes, and make sure appropriate name is used
-		matching_symbol_lst_total = []
+		# matching_symbol_lst_total = []
+		collapsed_adata = None
+		all_drop = []
 		for gene_collapse in collapse.keys():
+			print(gene_collapse)
+			all_drop.extend(collapse[gene_collapse])
 			x_collapse = np.sum(mfinal_adata[:,collapse[gene_collapse]].X.toarray(), axis=1)
 			matching_symbol_lst = [i for i in collapse[gene_collapse] if i in cxg_adata_raw.var.index.to_list()]
 			if len(matching_symbol_lst) == 1:
 				matching_symbol = matching_symbol_lst[0]
-				matching_symbol_lst_total.append(matching_symbol)
+				# matching_symbol_lst_total.append(matching_symbol)
 			else:
 				logging.info('ERROR:\tcould not find matching symbol for collaped {}'.format(gene_collapse))
 			collapsed_row = ad.AnnData(X=pd.DataFrame(x_collapse), obs=mfinal_adata[:,matching_symbol].obs, var=mfinal_adata[:,matching_symbol].var)
-			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in collapse[gene_collapse]]]
-			mfinal_adata = ad.concat([mfinal_adata, collapsed_row], axis=1, join='outer', merge="first")
+			if not collapsed_adata:
+				collapsed_adata = collapsed_row
+			else:
+				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
+			del(collapsed_row)
+			gc.collect()
+		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
+		mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in redundant]]
 
-        
 	# Clean up columns and column names for var, gene name must be gene_id
 	# WILL NEED TO REVISIT WHEN THERE IS MORE THAN ONE VALUE FOR GENE ID
 	if len(set(feature_lengths)) > 1 and len(mfinal_obj['genome_annotations'])==1:
