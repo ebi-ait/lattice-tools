@@ -28,6 +28,14 @@ The script will produce a h5ad file in the current directory where the script is
 
 Version update logging
 ----------------
+
+**Version 3.9**:
+- MatrixFiles are now Raw/ProcessedMatrixFiles to simplify the distinction between the two
+- Can handle raw matrices aligned the same annotation but with different number of number of gene features
+- Will reconcile genes identifiers in raw and normalized matrix for datasets aligned to multiple gene annotation version, assuming contributor merged on gene symbol
+- Fixed bug in disease logic for reported_diseases field
+
+
 **Version 3**:
 - Allow reading from h5ad file format for raw count matrices
 - Raw matrix will be an outer join to allow for merging of matrices with varying feature counts
