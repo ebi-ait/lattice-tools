@@ -11,25 +11,21 @@ def getArgs():
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 )
 	parser.add_argument('--mex', '-m',
-						help="local path to the MEX directory")
-						
-	parser.add_argument('--out', '-o',
-						help="local path to the output directory")
-						
+						help="local path to the MEX directory")						
 	args = parser.parse_args()
 	return args
 
 args = getArgs()
 
 mex = args.mex
-out = args.out
 
-matrix = sc.read_10x_mtx(mex, var_names = "gene_symbols")
-matrix.var['feature_types'] = 'Gene Expression'
-matrix.var['genome'] = 'GRCh38'
+if os.path.isfile(mex):
+    directories = [line.rstrip('\n') for line in open(mex)]
+else:
+    directories = mex.split(',')
 
-h5ad_name = "%s.h5ad" % mex
-h5ad_path = os.path.join(out, h5ad_name)
-
-matrix.write_h5ad(filename = h5ad_path)
-
+for m in directories:
+	matrix = sc.read_10x_mtx(m, var_names = "gene_symbols")
+	h5ad_name = "%s.h5ad" % m.replace('/','_').strip('_')
+	matrix.write(filename=h5ad_name, compression='gzip')
+	print(h5ad_name + ' written')
