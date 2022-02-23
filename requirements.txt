@@ -1,0 +1,16 @@
+python-magic
+requests
+openpyxl
+Pillow
+gspread
+gspread_formatting
+oauth2client
+scanpy
+google-cloud-storage
+google-auth-httplib2
+conda
+conda-forge
+anndata
+pint
+pandas
+rpy2
