@@ -9,7 +9,6 @@ scanpy
 google-cloud-storage
 google-auth-httplib2
 conda
-conda-forge
 anndata
 pint
 pandas
