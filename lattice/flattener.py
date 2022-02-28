@@ -449,7 +449,7 @@ def download_file(file_obj, directory):
         print(file_name + ' downloading')
         try:
             ftp.retrbinary('RETR ' + file_path, open(directory + '/' + file_name, 'wb').write)
-        except error_perm as e:
+        except Exception as e:
             os.remove(file_name)
             sys.exit(e)
         else:
@@ -621,7 +621,7 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj):
             if susp in library_susp[lib_uniq]:
                 demult_susp = susp
         if demult_susp == '':
-            print('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
+            print('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor_uniq, donor_susp[donor_uniq], library_susp[lib_uniq]))
         else:
             demult_susp_lst.append(demult_susp)
     lib_donor_df['suspension_@id'] = demult_susp_lst
