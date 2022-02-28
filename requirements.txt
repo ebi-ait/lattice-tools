@@ -13,3 +13,4 @@ anndata
 pint
 pandas
 rpy2
+boto3
