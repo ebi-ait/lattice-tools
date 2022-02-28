@@ -871,15 +871,11 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
     return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant
 
 
-def main():
-    args = getArgs()
-
+def flatten(mfinal_id, mode):
     global connection, server
 
-    connection = lattice.Connection(args.mode)
+    connection = lattice.Connection(mode)
     server = connection.server
-
-    mfinal_id = args.id
 
     mfinal_obj = lattice.get_object(mfinal_id, connection)
     logging.basicConfig(filename='outfile_flattener.log', level=logging.INFO)
@@ -1288,6 +1284,11 @@ def main():
             cxg_adata.write(results_file, compression = 'gzip')
 
     shutil.rmtree(tmp_dir)
+
+
+def main():
+    args = getArgs()
+    flatten(args.id, args.mode)
 
 
 if __name__ == '__main__':
